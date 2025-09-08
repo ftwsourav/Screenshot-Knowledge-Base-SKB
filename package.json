@@ -1,0 +1,21 @@
+{
+  "name": "screenshot-knowledge-base",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter @skb/server dev\" \"pnpm --filter @skb/web dev\" \"pnpm --filter @skb/desktop dev\"",
+    "build": "pnpm --filter @skb/server build && pnpm --filter @skb/web build && pnpm --filter @skb/desktop build",
+    "lint": "pnpm --filter @skb/server lint && pnpm --filter @skb/web lint",
+    "test": "pnpm --filter @skb/server test && pnpm --filter @skb/web test"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0",
+    "typescript": "^5.0.0",
+    "eslint": "^8.0.0",
+    "prettier": "^3.0.0"
+  }
+}
