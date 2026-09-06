@@ -3,15 +3,18 @@
   "version": "0.1.0",
   "main": "dist/main.js",
   "scripts": {
-    "dev": "concurrently \"wait-on http://localhost:3000 && electron .\" \"npm run dev:web\"",
-    "dev:electron": "electron .",
+    "dev": "concurrently \"pnpm run build:watch\" \"wait-on http://localhost:3000 && node scripts/launch.js\"",
+    "dev:electron": "node scripts/launch.js",
     "dev:web": "cd ../web && npm run dev",
     "build": "tsc",
+    "build:watch": "tsc --watch",
     "build:electron": "electron-builder",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "electron": "^28.0.0"
+    "electron": "^28.0.0",
+    "@skb/common": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

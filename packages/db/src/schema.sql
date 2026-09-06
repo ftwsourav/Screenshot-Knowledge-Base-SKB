@@ -58,3 +58,15 @@ CREATE TABLE IF NOT EXISTS embeddings (
 CREATE INDEX IF NOT EXISTS idx_screenshots_created_at ON screenshots(created_at);
 CREATE INDEX IF NOT EXISTS idx_screenshots_imported_at ON screenshots(imported_at);
 CREATE INDEX IF NOT EXISTS idx_metadata_key ON metadata(key);
+
+-- FTS sync triggers
+CREATE TRIGGER IF NOT EXISTS texts_ai AFTER INSERT ON texts BEGIN
+  INSERT INTO texts_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS texts_ad AFTER DELETE ON texts BEGIN
+  INSERT INTO texts_fts(texts_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+END;
+CREATE TRIGGER IF NOT EXISTS texts_au AFTER UPDATE ON texts BEGIN
+  INSERT INTO texts_fts(texts_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+  INSERT INTO texts_fts(rowid, content) VALUES (new.rowid, new.content);
+END;

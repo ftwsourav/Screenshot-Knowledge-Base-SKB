@@ -1,6 +1,5 @@
-import { createWorker } from 'tesseract.js';
+import Tesseract from 'tesseract.js';
 import sharp from 'sharp';
-import * as fs from 'fs';
 import { logger } from '@skb/common';
 
 export interface OCRResult {
@@ -13,7 +12,7 @@ export class OCRProcessor {
 
   async initialize() {
     if (!this.worker) {
-      this.worker = await createWorker('eng');
+      this.worker = await Tesseract.createWorker('eng');
       logger.info('OCR worker initialized');
     }
   }

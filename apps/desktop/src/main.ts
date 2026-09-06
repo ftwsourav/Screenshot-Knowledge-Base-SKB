@@ -1,23 +1,105 @@
-import { app, BrowserWindow, Menu } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
+
+const API_URL = process.env.SKB_API_URL || 'http://localhost:5656';
+const WEB_URL = process.env.SKB_WEB_URL || 'http://localhost:3000';
+
+const MIME: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+  webp: 'image/webp',
+};
+
+interface ImportResult {
+  success: boolean;
+  screenshotId?: string;
+  duplicate?: boolean;
+  error?: string;
+}
+
+interface FileImportEntry extends ImportResult {
+  path: string;
+}
+
+async function importFileToServer(filePath: string): Promise<ImportResult> {
+  try {
+    const buf = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).slice(1).toLowerCase();
+    const type = MIME[ext] || 'application/octet-stream';
+    const blob = new Blob([buf], { type });
+    const form = new FormData();
+    form.append('file', blob, path.basename(filePath));
+    const res = await fetch(`${API_URL}/api/import`, { method: 'POST', body: form });
+    if (!res.ok) return { success: false, error: `HTTP ${res.status}` };
+    return (await res.json()) as ImportResult;
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+}
+
+async function watchFolderOnServer(folderPath: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_URL}/api/import/folder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: folderPath }),
+    });
+    if (!res.ok) return { success: false, error: `HTTP ${res.status}` };
+    return (await res.json()) as { success: boolean; error?: string };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+}
 
 let mainWindow: BrowserWindow | null = null;
 
-function createWindow() {
+async function openAndImportFiles(): Promise<{ success: boolean; canceled?: boolean; results?: FileImportEntry[]; error?: string }> {
+  if (!mainWindow) return { success: false, error: 'No window' };
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Import Screenshots',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return { success: false, canceled: true };
+  const results: FileImportEntry[] = [];
+  for (const p of result.filePaths) {
+    results.push({ path: p, ...(await importFileToServer(p)) });
+  }
+  return { success: true, results };
+}
+
+async function openAndWatchFolder(): Promise<{ success: boolean; error?: string; path?: string; canceled?: boolean }> {
+  if (!mainWindow) return { success: false, error: 'No window' };
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select Folder to Watch',
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || !result.filePaths.length) return { success: false, canceled: true };
+  const fp = result.filePaths[0];
+  const r = await watchFolderOnServer(fp);
+  return { ...r, path: fp };
+}
+
+function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: 1280,
+    height: 840,
+    minWidth: 900,
+    minHeight: 600,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
 
-  // Load the Next.js app
-  mainWindow.loadURL('http://localhost:3000');
+  mainWindow.loadURL(WEB_URL);
 
-  // Open DevTools in development
-  if (process.env.NODE_ENV === 'development') {
+  if (!app.isPackaged) {
     mainWindow.webContents.openDevTools();
   }
 
@@ -26,21 +108,21 @@ function createWindow() {
   });
 }
 
-function createMenu() {
+function createMenu(): void {
   const template: Electron.MenuItemConstructorOptions[] = [
     {
       label: 'File',
       submenu: [
         {
-          label: 'Import Screenshot',
-          click: () => {
-            // TODO: Open file dialog and import
+          label: 'Import Screenshot…',
+          click: async () => {
+            await openAndImportFiles();
           },
         },
         {
-          label: 'Watch Folder',
-          click: () => {
-            // TODO: Open folder dialog and watch
+          label: 'Watch Folder…',
+          click: async () => {
+            await openAndWatchFolder();
           },
         },
         { type: 'separator' },
@@ -79,12 +161,27 @@ function createMenu() {
       ],
     },
     {
+      label: 'Window',
+      submenu: [{ role: 'minimize' }, { role: 'close' }],
+    },
+    {
       label: 'Help',
       submenu: [
         {
-          label: 'About',
-          click: () => {
-            // TODO: Show about dialog
+          label: 'About SKB',
+          click: async () => {
+            await dialog.showMessageBox(mainWindow!, {
+              type: 'info',
+              title: 'About SKB',
+              message: 'Screenshot Knowledge Base',
+              detail: 'Local-first screenshot search.\n\nOCR + FTS + tags.\nAll processing happens locally.',
+            });
+          },
+        },
+        {
+          label: 'Open GitHub',
+          click: async () => {
+            await shell.openExternal('https://github.com/');
           },
         },
       ],
@@ -95,7 +192,16 @@ function createMenu() {
   Menu.setApplicationMenu(menu);
 }
 
+function registerIpcHandlers(): void {
+  ipcMain.handle('dialog:openFile', async () => openAndImportFiles());
+  ipcMain.handle('dialog:openFolder', async () => openAndWatchFolder());
+  ipcMain.handle('app:quit', () => {
+    app.quit();
+  });
+}
+
 app.whenReady().then(() => {
+  registerIpcHandlers();
   createWindow();
   createMenu();
 });

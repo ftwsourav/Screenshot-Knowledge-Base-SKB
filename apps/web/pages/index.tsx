@@ -1,92 +1,104 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { useCallback, useEffect, useState } from 'react';
+import { getStats, getTags, listScreenshots } from '../lib/api';
+import type { ScreenshotDTO, StatsResponse } from '../lib/types';
+import StatsBar from '../components/StatsBar';
+import SearchBar from '../components/SearchBar';
+import ScreenshotGrid from '../components/ScreenshotGrid';
+import UploadDropzone from '../components/UploadDropzone';
+import WatchFolder from '../components/WatchFolder';
+import Pagination from '../components/Pagination';
 
-interface Screenshot {
-  id: string;
-  file_path: string;
-  created_at: number;
-  snippet?: string;
-}
+const LIMIT = 24;
 
 export default function Home() {
-  const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
-  const [query, setQuery] = useState('');
+  const [screenshots, setScreenshots] = useState<ScreenshotDTO[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [tags, setTags] = useState<string[]>([]);
+  const [q, setQ] = useState('');
+  const [tag, setTag] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [offset, setOffset] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadScreenshots();
+  const loadStats = useCallback(() => {
+    getStats()
+      .then(setStats)
+      .catch(() => {});
   }, []);
 
-  const loadScreenshots = async () => {
+  const loadTags = useCallback(() => {
+    getTags()
+      .then(setTags)
+      .catch(() => {});
+  }, []);
+
+  const runSearch = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const response = await axios.get('http://localhost:5656/api/screenshots');
-      setScreenshots(response.data);
-    } catch (error) {
-      console.error('Failed to load screenshots:', error);
+      const res = await listScreenshots({
+        q: q || undefined,
+        tag: tag || undefined,
+        from: from ? Date.parse(from + 'T00:00:00') : undefined,
+        to: to ? Date.parse(to + 'T23:59:59') : undefined,
+        limit: LIMIT,
+        offset,
+      });
+      setScreenshots(res.screenshots);
+      setTotal(res.total);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load screenshots');
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [q, tag, from, to, offset]);
 
-  const handleSearch = async () => {
-    try {
-      const response = await axios.get(`http://localhost:5656/api/screenshots?q=${query}`);
-      setScreenshots(response.data);
-    } catch (error) {
-      console.error('Search failed:', error);
-    }
-  };
+  useEffect(() => {
+    loadStats();
+    loadTags();
+  }, [loadStats, loadTags]);
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  useEffect(() => {
+    runSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offset]);
 
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      await axios.post('http://localhost:5656/api/import', formData);
-      loadScreenshots();
-    } catch (error) {
-      console.error('Upload failed:', error);
-    }
-  };
+  const handleUploaded = useCallback(() => {
+    loadStats();
+    runSearch();
+  }, [loadStats, runSearch]);
 
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">Screenshot Knowledge Base</h1>
-
-      <div className="mb-4">
-        <input
-          type="text"
-          placeholder="Search screenshots..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="border p-2 mr-2"
-        />
-        <button onClick={handleSearch} className="bg-blue-500 text-white px-4 py-2">
-          Search
-        </button>
+    <div>
+      <StatsBar stats={stats} />
+      <SearchBar
+        q={q}
+        tag={tag}
+        from={from}
+        to={to}
+        tags={tags}
+        onQ={setQ}
+        onTag={setTag}
+        onFrom={setFrom}
+        onTo={setTo}
+        onSearch={runSearch}
+      />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <UploadDropzone onUploaded={handleUploaded} />
+        <div className="flex items-start">
+          <WatchFolder onWatched={handleUploaded} />
+        </div>
       </div>
-
-      <div className="mb-4">
-        <input type="file" accept="image/*" onChange={handleFileUpload} />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {screenshots.map((screenshot) => (
-          <div key={screenshot.id} className="border p-4">
-            <img
-              src={`http://localhost:5656/images/${screenshot.id}.png`}
-              alt="Screenshot"
-              className="w-full h-32 object-cover mb-2"
-            />
-            <p className="text-sm text-gray-600">
-              {new Date(screenshot.created_at).toLocaleDateString()}
-            </p>
-            {screenshot.snippet && (
-              <p className="text-sm">{screenshot.snippet}</p>
-            )}
-          </div>
-        ))}
-      </div>
+      {error ? (
+        <div className="mb-4 rounded-md bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
+          {error}
+        </div>
+      ) : null}
+      <ScreenshotGrid screenshots={screenshots} loading={loading} />
+      <Pagination total={total} limit={LIMIT} offset={offset} onOffset={setOffset} />
     </div>
   );
 }
